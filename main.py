@@ -1,14 +1,43 @@
+import hashlib
+import secrets
 from typing import List
 
 from fastapi import FastAPI, Depends, HTTPException, status
+from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
 import models
 import schemas
 from database import engine, get_db
 
-# Create database tables
-models.Base.metadata.create_all(bind=engine)
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def create_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def ensure_user_columns() -> None:
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        models.Base.metadata.create_all(bind=engine)
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("users")}
+    if "location" not in columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE users ADD COLUMN location VARCHAR"))
+
+    if "password_hash" not in columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR"))
+
+    models.Base.metadata.create_all(bind=engine)
+
+
+ensure_user_columns()
 
 app = FastAPI(
     title="Experience Backend API",
@@ -24,7 +53,7 @@ app = FastAPI(
     response_model=schemas.UserResponse,
     tags=["Authentication"],
     summary="User Registration",
-    description="Register a new user using first name, last name, email, and phone number.",
+    description="Register a new user using first name, last name, email, mobile, location, and password.",
     status_code=status.HTTP_201_CREATED,
 )
 def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -33,20 +62,19 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     """
 
     existing_user = db.query(models.User).filter(
-        models.User.email == user.email
+        or_(models.User.email == str(user.email), models.User.phone == user.mobile)
     ).first()
 
     if existing_user:
-        raise HTTPException(
-            status_code=400,
-            detail="Email already registered"
-        )
+        raise HTTPException(status_code=400, detail="Email or mobile already registered")
 
     new_user = models.User(
         first_name=user.first_name,
         last_name=user.last_name,
-        email=user.email,
-        phone=user.phone
+        email=str(user.email),
+        phone=user.mobile,
+        location=user.location,
+        password_hash=hash_password(user.password),
     )
 
     db.add(new_user)
@@ -56,19 +84,34 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return new_user
 
 
-@app.get(
-    "/yatrivo/api/v1/auth/users",
-    response_model=List[schemas.UserResponse],
+@app.post(
+    "/yatrivo/api/v1/auth/login",
+    response_model=schemas.LoginResponse,
     tags=["Authentication"],
-    summary="Get All Users",
-    description="Retrieve a list of all registered users.",
+    summary="User Login",
+    description="Authenticate a user using email or mobile number and password.",
 )
-def get_users(db: Session = Depends(get_db)):
+def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
     """
-    Get all users.
+    Authenticate a user and return a token with profile details.
     """
-    users = db.query(models.User).all()
-    return users
+    login_value = payload.emailormbilenumber.strip()
+
+    user = db.query(models.User).filter(
+        or_(
+            func.lower(models.User.email) == login_value.lower(),
+            models.User.phone == login_value,
+        )
+    ).first()
+
+    if not user or user.password_hash != hash_password(payload.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    return {
+        "success": True,
+        "token": create_token(),
+        "user": user,
+    }
 
 
 @app.get(

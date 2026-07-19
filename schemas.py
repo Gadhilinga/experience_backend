@@ -1,19 +1,32 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserCreate(BaseModel):
     first_name: str
     last_name: str
     email: EmailStr
-    phone: str
+    mobile: str
+    location: str
+    password: str
 
 
 class UserResponse(BaseModel):
-    id: int
-    first_name: str
-    last_name: str
-    email: str
-    phone: str
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-    class Config:
-        from_attributes = True
+    id: int
+    first_name: str = Field(alias="firstName")
+    last_name: str = Field(alias="lastName")
+    email: str
+    mobile: str
+    location: str
+
+
+class LoginRequest(BaseModel):
+    emailormbilenumber: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    success: bool
+    token: str
+    user: UserResponse
