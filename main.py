@@ -66,7 +66,7 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     ).first()
 
     if existing_user:
-        raise HTTPException(status_code=400, detail="Email or mobile already registered")
+        raise HTTPException(status_code=400, detail="Email or mobile already registered.")
 
     new_user = models.User(
         first_name=user.first_name,
