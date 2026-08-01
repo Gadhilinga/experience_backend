@@ -1,9 +1,12 @@
 import hashlib
+import logging
 import secrets
+from contextlib import asynccontextmanager
 from typing import List
 
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy import func, inspect, or_, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 import models
@@ -19,25 +22,39 @@ def create_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+logger = logging.getLogger(__name__)
+
 def ensure_user_columns() -> None:
-    inspector = inspect(engine)
-    if "users" not in inspector.get_table_names():
-        models.Base.metadata.create_all(bind=engine)
+    try:
+        inspector = inspect(engine)
+    except (OperationalError, Exception) as exc:
+        logger.warning("Database unavailable during startup; skipping schema initialization: %s", exc)
         return
 
-    columns = {column["name"] for column in inspector.get_columns("users")}
-    if "location" not in columns:
-        with engine.begin() as connection:
-            connection.execute(text("ALTER TABLE users ADD COLUMN location VARCHAR"))
+    try:
+        if "users" not in inspector.get_table_names():
+            models.Base.metadata.create_all(bind=engine)
+            return
 
-    if "password_hash" not in columns:
-        with engine.begin() as connection:
-            connection.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR"))
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "location" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE users ADD COLUMN location VARCHAR"))
 
-    models.Base.metadata.create_all(bind=engine)
+        if "password_hash" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR"))
+
+        models.Base.metadata.create_all(bind=engine)
+    except (OperationalError, Exception) as exc:
+        logger.warning("Unable to initialize database schema: %s", exc)
 
 
-ensure_user_columns()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ensure_user_columns()
+    yield
+
 
 app = FastAPI(
     title="Experience Backend API",
@@ -45,6 +62,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    lifespan=lifespan,
 )
 
 
@@ -84,18 +102,14 @@ def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return new_user
 
 
-@app.post(
-    "/yatrivo/api/v1/auth/login",
-    response_model=schemas.LoginResponse,
-    tags=["Authentication"],
-    summary="User Login",
-    description="Authenticate a user using email or mobile number and password.",
-)
+@app.post("/yatrivo/api/v1/auth/login", response_model=schemas.LoginResponse)
 def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
-    """
-    Authenticate a user and return a token with profile details.
-    """
+
     login_value = payload.emailormbilenumber.strip()
+
+    print("Login value:", login_value)
+    print("Input password:", payload.password)
+    print("Input hash:", hash_password(payload.password))
 
     user = db.query(models.User).filter(
         or_(
@@ -104,15 +118,24 @@ def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
         )
     ).first()
 
-    if not user or user.password_hash != hash_password(payload.password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    print("User found:", user)
+
+    if user:
+        print("DB email:", user.email)
+        print("DB phone:", user.phone)
+        print("DB hash:", user.password_hash)
+
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    if user.password_hash != hash_password(payload.password):
+        raise HTTPException(status_code=401, detail="Password mismatch")
 
     return {
         "success": True,
         "token": create_token(),
         "user": user,
     }
-
 
 @app.get(
     "/yatrivo/api/v1/auth/users/{user_id}",
