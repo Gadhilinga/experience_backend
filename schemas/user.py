@@ -1,6 +1,5 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-
 class UserCreate(BaseModel):
     first_name: str
     last_name: str
@@ -11,7 +10,10 @@ class UserCreate(BaseModel):
 
 
 class UserResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+    )
 
     id: int
     first_name: str = Field(alias="firstName")
