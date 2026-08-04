@@ -1,19 +1,9 @@
-import hashlib
-import secrets
-
 from fastapi import HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from core.security import create_access_token, hash_password, verify_password
 from models.user import User
-
-
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
-
-def create_token() -> str:
-    return secrets.token_urlsafe(32)
 
 
 def register_user(user_data, db: Session):
@@ -62,15 +52,20 @@ def login_user(login_data, db: Session):
             detail="User not found",
         )
 
-    if user.password_hash != hash_password(login_data.password):
+    if not verify_password(login_data.password, user.password_hash):
         raise HTTPException(
             status_code=401,
             detail="Password mismatch",
         )
 
+    token = create_access_token({
+        "sub": str(user.id),
+        "email": user.email,
+    })
+
     return {
         "success": True,
-        "token": create_token(),
+        "token": token,
         "user": user,
     }
 
