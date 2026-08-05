@@ -4,12 +4,14 @@ from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from jose import JWTError, jwt
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 load_dotenv()
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-
+security = HTTPBearer()
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
@@ -36,3 +38,17 @@ def verify_token(token: str) -> dict:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError as exc:
         raise ValueError("Invalid or expired token") from exc
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    token = credentials.credentials
+
+    try:
+        payload = verify_token(token)
+        return payload
+    except ValueError:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing or invalid token",
+        )

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from core.security import get_current_user
 
 from core.database import get_db
 from core.security import verify_token
@@ -59,28 +60,21 @@ def login(
 ):
     return login_user(payload, db)
 
-
 @router.get(
     "/users/{user_id}",
     response_model=UserResponse,
 )
 def get_user(
     user_id: int,
-    request: Request,
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    token = extract_token_from_request(request)
+    token_user_id = current_user.get("sub")
 
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing or invalid token")
-
-    try:
-        payload = verify_token(token)
-    except ValueError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-
-    token_user_id = payload.get("sub")
     if token_user_id is None or str(token_user_id) != str(user_id):
-        raise HTTPException(status_code=403, detail="Not authorized to access this profile")
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to access this profile",
+        )
 
     return get_user_by_id(user_id, db)
