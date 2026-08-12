@@ -78,3 +78,29 @@ def get_user(
         )
 
     return get_user_by_id(user_id, db)
+from schemas.user import (
+    UserCreate,
+    UserResponse,
+    LoginRequest,
+    LoginResponse,
+    LogoutRequest,
+)
+from services.auth_service import (
+    register_user,
+    login_user,
+    get_user_by_id,
+    logout_user,
+)
+
+# ...
+
+@router.post(
+    "/logout",
+    summary="Logout user",
+)
+def logout(request: LogoutRequest):
+    if request.user_id <= 0 or not request.access_token:
+        raise HTTPException(status_code=400, detail="user_id and access_token are required")
+
+    logout_user(request.user_id, request.access_token)
+    return {"message": "Logged out successfully"}    

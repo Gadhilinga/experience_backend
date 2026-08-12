@@ -32,3 +32,6 @@ class LoginResponse(BaseModel):
     success: bool
     token: str
     user: UserResponse
+class LogoutRequest(BaseModel):
+    user_id: int
+    access_token: str    

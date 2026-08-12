@@ -80,3 +80,21 @@ def get_user_by_id(user_id: int, db: Session):
         )
 
     return user
+
+def logout_user(user_id: int, access_token: str):
+    if user_id <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid user ID",
+        )
+
+    if not access_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Access token is required",
+        )
+
+    # For JWT, the client removes the token after logout.
+    # Server-side token invalidation requires a blacklist/revocation system.
+
+    return True
